@@ -33,7 +33,43 @@ function gadget:Initialize()
 	GG.ResignAllyTeam = ResignAllyTeam
 end
 
+-- Skirmish AIs (CircuitAI) concede with Lua_callRules("ai_resign"). AI callins only run on the AI's host, so relay it
+-- as a LuaRules message from the host to resign the team in sync, as /resign would. "1" tells the AI it was heard.
+function gadget:RecvSkirmishAIMessage(aiTeam, dataStr)
+	if dataStr ~= "ai_resign" then
+		return
+	end
+	CallAsTeam(aiTeam, function()
+		Spring.SendLuaRulesMsg("ai_resign:" .. aiTeam)
+	end)
+	return "1"
+end
+
+local function AIResign(msg, playerID)
+	if Spring.GetGameFrame() <= 0 then
+		return
+	end
+	local teamID = tonumber(msg:sub(11))
+	if not teamID then
+		return
+	end
+	local _, _, isDead, isAI = Spring.GetTeamInfo(teamID, false)
+	if isDead or not isAI then
+		return
+	end
+	local _, aiName, aiHost = Spring.GetAIInfo(teamID)
+	if aiHost ~= playerID then -- only the player hosting the AI may resign it
+		return
+	end
+	Spring.Echo("<" .. tostring(aiName) .. "> I am defeated.")
+	ResignTeam(teamID)
+end
+
 function gadget:RecvLuaMsg (msg, playerID)
+	if msg:find("ai_resign:", 1, true) == 1 then
+		AIResign(msg, playerID)
+		return
+	end
 	if msg ~= "forceresign"
 	or Spring.GetGameFrame() <= 0 -- causes dedi server to think the game is over (apparently)
 	or Spring.GetPlayerRulesParam(playerID, "initiallyPlayingPlayer") ~= 1
